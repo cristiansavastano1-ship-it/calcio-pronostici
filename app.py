@@ -3,6 +3,7 @@ import pandas as pd
 import penaltyblog as pb
 import numpy as np
 from scipy.stats import poisson
+import requests
 
 # Impostazioni della pagina web
 st.set_page_config(page_title="Calcio Betting Model", page_icon="⚽", layout="wide")
@@ -12,7 +13,6 @@ st.set_page_config(page_title="Calcio Betting Model", page_icon="⚽", layout="w
 def carica_dati():
     url = "https://www.football-data.co.uk/mmz4281/2324/E0.csv"
     data = pd.read_csv(url)
-    # Puliamo i dati dai valori mancanti per evitare errori
     data = data.dropna(subset=["FTHG", "FTAG", "HC", "AC", "HY", "AY"])
     return data
 
@@ -165,19 +165,16 @@ if st.button("Calcola Pronostico", type="primary"):
         # --- SEZIONE 5: ANGOLI (CORNERS) ---
         st.subheader("🚩 Mercato Angoli (Corners)")
         
-        # Calcoliamo la media storica di angoli fatti in casa e subiti in trasferta
         avg_home_corners = data[data['HomeTeam'] == casa]['HC'].mean()
         avg_away_corners = data[data['AwayTeam'] == trasferta]['AC'].mean()
         lambda_corners = avg_home_corners + avg_away_corners
         
         st.write(f"**Stima Angoli Totali:** {lambda_corners:.1f} (Media {casa} in casa: {avg_home_corners:.1f} | Media {trasferta} in trasferta: {avg_away_corners:.1f})")
         
-        # Calcoliamo le probabilità Over per le linee più comuni
         linee_corners = [8.5, 9.5, 10.5, 11.5]
         cols_corners = st.columns(len(linee_corners))
         
         for i, linea in enumerate(linee_corners):
-            # Probabilità che il numero di angoli sia MAGGIORE della linea
             p_over = 1 - poisson.cdf(np.floor(linea), lambda_corners)
             with cols_corners[i]:
                 st.metric(f"Over {linea}", f"{p_over:.1%}", help=f"Quota minima: {1/p_over:.2f}")
@@ -187,7 +184,6 @@ if st.button("Calcola Pronostico", type="primary"):
         # --- SEZIONE 6: CARTELLINI (CARDS) ---
         st.subheader("🟨 Mercato Cartellini (Ammonizioni)")
         
-        # Calcoliamo la media storica dei cartellini gialli
         avg_home_cards = data[data['HomeTeam'] == casa]['HY'].mean()
         avg_away_cards = data[data['AwayTeam'] == trasferta]['AY'].mean()
         lambda_cards = avg_home_cards + avg_away_cards
@@ -201,3 +197,56 @@ if st.button("Calcola Pronostico", type="primary"):
             p_over = 1 - poisson.cdf(np.floor(linea), lambda_cards)
             with cols_cards[i]:
                 st.metric(f"Over {linea}", f"{p_over:.1%}", help=f"Quota minima: {1/p_over:.2f}")
+
+        st.divider()
+
+        # --- SEZIONE 7: MERCATI GIOCATORI (API-FOOTBALL) ---
+        st.subheader("👤 Mercati Giocatori (Marcatori e Tiri)")
+        st.write("Clicca il pulsante per caricare i dati dei giocatori da API-Football. **Attenzione:** consuma 1 richiesta del tuo piano gratuito (100 al giorno).")
+        
+        # Inserisci qui la tua chiave API (per il test) o usa st.secrets
+        # Per semplicità, la mettiamo in un campo di testo nascosto
+        api_key = st.text_input("Inserisci la tua API Key di API-Football", type="password")
+        
+        if st.button("Carica Statistiche Giocatori"):
+            if not api_key:
+                st.error("Inserisci la tua API Key per procedere.")
+            else:
+                with st.spinner("Interrogazione API-Football in corso..."):
+                    try:
+                        # 1. Troviamo l'ID della partita (fixture) tramite le squadre
+                        # Questo è un esempio, la ricerca precisa richiede la data esatta
+                        # Per semplicità, cerchiamo la partita più recente tra le due squadre
+                        # In un'app reale, dovresti usare un selettore di data.
+                        # Usiamo un endpoint di ricerca generico (fittizio per l'esempio)
+                        # In API-Football, si usa /fixtures?team=...&team=...&last=1
+                        
+                        # Per questo esempio, simuliamo una risposta per mostrare la struttura.
+                        # In un caso reale, dovresti fare:
+                        # headers = {'x-rapidapi-key': api_key, 'x-rapidapi-host': 'v3.football.api-sports.io'}
+                        # url_fixture = f"https://v3.football.api-sports.io/fixtures?team={casa_id}&team={trasferta_id}&last=1"
+                        # response = requests.get(url_fixture, headers=headers).json()
+                        # fixture_id = response['response'][0]['fixture']['id']
+                        
+                        # Poi:
+                        # url_stats = f"https://v3.football.api-sports.io/fixtures/players?fixture={fixture_id}"
+                        # stats = requests.get(url_stats, headers=headers).json()
+                        
+                        # Per ora, mostriamo una tabella di esempio per illustrare l'output
+                        # Inseriremo qui la logica reale nel prossimo passaggio, se vuoi.
+                        
+                        st.info("Funzionalità di esempio. La logica per trovare l'ID della partita e chiamare l'API verrà implementata nel prossimo step, in base al tuo feedback.")
+                        
+                        # Tabella di esempio (fittizia) per mostrare come apparirà
+                        df_players_example = pd.DataFrame({
+                            'Giocatore': ['Saka', 'Martinelli', 'Odegaard', 'Havertz', 'Palmer', 'Jackson', 'Sterling'],
+                            'Squadra': ['Arsenal', 'Arsenal', 'Arsenal', 'Arsenal', 'Chelsea', 'Chelsea', 'Chelsea'],
+                            'Tiri Totali': [3.5, 2.8, 2.1, 1.9, 3.2, 2.5, 2.0],
+                            'Tiri in Porta': [1.2, 0.9, 0.7, 0.5, 1.1, 0.8, 0.6],
+                            'Gol Segnati': [0.5, 0.4, 0.2, 0.2, 0.4, 0.3, 0.2],
+                            'Cartellini': [0.1, 0.1, 0.05, 0.1, 0.15, 0.2, 0.1]
+                        })
+                        st.dataframe(df_players_example, use_container_width=True)
+                        
+                    except Exception as e:
+                        st.error(f"Errore durante la chiamata API: {e}")
