@@ -10,8 +10,8 @@ st.set_page_config(page_title="Calcio Betting Model", page_icon="⚽", layout="w
 
 # --- BARRA LATERALE (SIDEBAR) ---
 st.sidebar.header("⚙️ Impostazioni API")
-api_key = st.sidebar.text_input("API Key (API-Football)", type="password", help="Inserisci la chiave gratuita di API-Football per i dati dei giocatori.")
-st.sidebar.info("Se non hai la chiave, lascia vuoto. L'app funzionerà lo stesso ma non mostrerà i dati dei giocatori.")
+api_key = st.sidebar.text_input("API Key (API-Football)", type="password", help="Inserisci la chiave gratuita di API-Football.")
+st.sidebar.info("Se non hai la chiave, l'app funzionerà lo stesso ma i mercati giocatori non saranno disponibili.")
 
 # Funzione per scaricare i dati
 @st.cache_data
@@ -33,6 +33,77 @@ def allena_modello(data):
     model.fit()
     return model
 
+# Funzione per chiamare l'API e ottenere i dati dei giocatori
+@st.cache_data(show_spinner=False)
+def get_player_stats(api_key, team_home, team_away):
+    headers = {
+        'x-rapidapi-key': api_key,
+        'x-rapidapi-host': 'v3.football.api-sports.io'
+    }
+    
+    # 1. Trova ID squadra di casa
+    r_home = requests.get(f"https://v3.football.api-sports.io/teams?search={team_home}", headers=headers).json()
+    if not r_home['response']:
+        return None, f"Squadra non trovata: {team_home}"
+    home_id = r_home['response'][0]['team']['id']
+    
+    # 2. Trova ID squadra trasferta
+    r_away = requests.get(f"https://v3.football.api-sports.io/teams?search={team_away}", headers=headers).json()
+    if not r_away['response']:
+        return None, f"Squadra non trovata: {team_away}"
+    away_id = r_away['response'][0]['team']['id']
+    
+    # 3. Trova l'ultima partita giocata tra le due (o la prossima)
+    # Usiamo 'headtohead' per trovare lo scontro diretto
+    r_fixture = requests.get(f"https://v3.football.api-sports.io/fixtures/headtohead?h2h={home_id}-{away_id}&last=1", headers=headers).json()
+    
+    if not r_fixture['response']:
+        return None, "Nessuna partita recente trovata tra queste due squadre."
+    
+    fixture_id = r_fixture['response'][0]['fixture']['id']
+    fixture_date = r_fixture['response'][0]['fixture']['date']
+    
+    # 4. Ottieni le statistiche dei giocatori per quella partita
+    r_stats = requests.get(f"https://v3.football.api-sports.io/fixtures/players?fixture={fixture_id}", headers=headers).json()
+    
+    if not r_stats['response']:
+        return None, "Statistiche giocatori non disponibili per questa partita."
+    
+    # 5. Estrai e pulisci i dati
+    players_data = []
+    for team_data in r_stats['response']:
+        for player in team_data['players']:
+            stats = player['statistics'][0]
+            
+            # Estraiamo i dati utili
+            nome = player['player']['name']
+            squadra = team_data['team']['name']
+            
+            # A volte le statistiche sono None se il giocatore non è sceso in campo
+            tiri_totali = stats['shots']['total'] if stats['shots']['total'] is not None else 0
+            tiri_in_porta = stats['shots']['on'] if stats['shots']['on'] is not None else 0
+            gol = stats['goals']['total'] if stats['goals']['total'] is not None else 0
+            cartellini = stats['cards']['yellow'] if stats['cards']['yellow'] is not None else 0
+            
+            # Teniamo solo i giocatori che hanno giocato almeno 1 minuto
+            minuti = stats['games']['minutes'] if stats['games']['minutes'] is not None else 0
+            if minuti > 0:
+                players_data.append({
+                    'Giocatore': nome,
+                    'Squadra': squadra,
+                    'Minuti': minuti,
+                    'Tiri Totali': tiri_totali,
+                    'Tiri in Porta': tiri_in_porta,
+                    'Gol Segnati': gol,
+                    'Cartellini Gialli': cartellini
+                })
+                
+    if not players_data:
+        return None, "Nessun giocatore con minuti giocati trovato."
+        
+    df = pd.DataFrame(players_data)
+    return df, fixture_date
+
 # Titolo dell'app
 st.title("⚽ Pronostici Calcio Avanzati")
 st.write("Seleziona le due squadre per vedere le probabilità calcolate.")
@@ -51,7 +122,7 @@ with col1:
 with col2:
     trasferta = st.selectbox("Squadra in Trasferta", squadre, index=squadre.index("Chelsea") if "Chelsea" in squadre else 1)
 
-# Inizializziamo la memoria per i risultati
+# Inizializziamo la memoria
 if "pred" not in st.session_state:
     st.session_state.pred = None
 if "match" not in st.session_state:
@@ -62,7 +133,6 @@ if st.button("Calcola Pronostico", type="primary"):
     if casa == trasferta:
         st.error("Seleziona due squadre diverse!")
     else:
-        # Salviamo i risultati in memoria così non si perdono
         st.session_state.pred = model.predict(casa, trasferta)
         st.session_state.match = (casa, trasferta)
 
@@ -218,25 +288,19 @@ if st.session_state.pred is not None:
 
     st.divider()
 
-    # --- SEZIONE 7: MERCATI GIOCATORI ---
-    st.subheader("👤 Mercati Giocatori (Marcatori e Tiri)")
-    st.write("Clicca il pulsante per caricare i dati dei giocatori da API-Football.")
+    # --- SEZIONE 7: MERCATI GIOCATORI (API-FOOTBALL) ---
+    st.subheader("👤 Mercati Giocatori (Dati Reali da API-Football)")
+    st.write("Clicca il pulsante per caricare i dati reali dei giocatori dell'ultima partita tra queste due squadre. (Consuma 3 richieste API).")
     
     if st.button("Carica Statistiche Giocatori"):
         if not api_key:
             st.warning("⚠️ Devi inserire la tua API Key nella barra laterale sinistra per usare questa funzione.")
         else:
             with st.spinner("Interrogazione API-Football in corso..."):
-                # Qui inseriremo la logica vera nel prossimo step.
-                # Per ora mostriamo la tabella di esempio per vedere l'interfaccia.
-                st.success("✅ (Simulazione) Chiamata API riuscita! Ecco i dati stimati:")
+                df_players, info = get_player_stats(api_key, casa_match, trasferta_match)
                 
-                df_players_example = pd.DataFrame({
-                    'Giocatore': ['Saka', 'Martinelli', 'Odegaard', 'Havertz', 'Palmer', 'Jackson', 'Sterling'],
-                    'Squadra': [casa_match, casa_match, casa_match, casa_match, trasferta_match, trasferta_match, trasferta_match],
-                    'Tiri Totali': [3.5, 2.8, 2.1, 1.9, 3.2, 2.5, 2.0],
-                    'Tiri in Porta': [1.2, 0.9, 0.7, 0.5, 1.1, 0.8, 0.6],
-                    'Gol Segnati': [0.5, 0.4, 0.2, 0.2, 0.4, 0.3, 0.2],
-                    'Cartellini': [0.1, 0.1, 0.05, 0.1, 0.15, 0.2, 0.1]
-                })
-                st.dataframe(df_players_example, use_container_width=True)
+                if df_players is None:
+                    st.error(f"Errore: {info}")
+                else:
+                    st.success(f"✅ Dati caricati con successo! (Riferiti alla partita del {info[:10]})")
+                    st.dataframe(df_players, use_container_width=True, hide_index=True)
