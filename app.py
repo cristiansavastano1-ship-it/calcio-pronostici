@@ -12,7 +12,8 @@ st.set_page_config(page_title="Calcio Betting Model", page_icon="⚽", layout="w
 def carica_dati():
     url = "https://www.football-data.co.uk/mmz4281/2324/E0.csv"
     data = pd.read_csv(url)
-    data = data.dropna(subset=["FTHG", "FTAG"])
+    # Puliamo i dati dai valori mancanti per evitare errori
+    data = data.dropna(subset=["FTHG", "FTAG", "HC", "AC", "HY", "AY"])
     return data
 
 # Funzione per addestrare il modello
@@ -29,7 +30,7 @@ def allena_modello(data):
 
 # Titolo dell'app
 st.title("⚽ Pronostici Calcio Avanzati")
-st.write("Seleziona le due squadre per vedere le probabilità calcolate dal modello Dixon-Coles.")
+st.write("Seleziona le due squadre per vedere le probabilità calcolate.")
 
 # Scarichiamo i dati e alleniamo il modello
 with st.spinner("Caricamento dati e addestramento del modello in corso..."):
@@ -69,7 +70,6 @@ if st.button("Calcola Pronostico", type="primary"):
         
         # --- SEZIONE 2: RISULTATI ESATTI FINALI ---
         st.subheader("🎯 Risultati Esatti più probabili (Fine Partita)")
-        st.write("I punteggi da giocare per le tue multiple 'Risultato Esatto'.")
         
         scores = []
         for h in range(5):
@@ -94,7 +94,6 @@ if st.button("Calcola Pronostico", type="primary"):
 
         # --- SEZIONE 3: RISULTATI ESATTI PRIMO TEMPO ---
         st.subheader("⏱️ Risultati Esatti più probabili (Solo 1° Tempo)")
-        st.write("Utile per i mercati 'Risultato Esatto 1° Tempo'.")
         
         lambda_home_ht = pred.home_goal_expectation * 0.45
         lambda_away_ht = pred.away_goal_expectation * 0.45
@@ -119,14 +118,11 @@ if st.button("Calcola Pronostico", type="primary"):
 
         # --- SEZIONE 4: COMBO TEMPO/FINALE (HT/FT) ---
         st.subheader("🔄 Combo: Esito 1° Tempo / Esito Finale")
-        st.write("Le combinazioni esatte (es. X/2 significa pareggio all'intervallo e vittoria trasferta alla fine).")
         
-        # Calcolo delle combinazioni
         lambda_home_st = pred.home_goal_expectation * 0.55
         lambda_away_st = pred.away_goal_expectation * 0.55
         
         combinazioni = []
-        # Dizionario per i nomi leggibili
         nomi_esiti = {"1": "Casa (1)", "X": "Pareggio (X)", "2": "Trasferta (2)"}
         
         for h_ht in range(5):
@@ -149,17 +145,14 @@ if st.button("Calcola Pronostico", type="primary"):
                         prob_totale = p_ht * p_st
                         combinazioni.append({"Combo (1°T / Finale)": combo_name, "Probabilità": prob_totale})
         
-        # Raggruppiamo e sommiamo le probabilità per ogni combo
         df_combo = pd.DataFrame(combinazioni).groupby("Combo (1°T / Finale)")["Probabilità"].sum().reset_index()
         df_combo = df_combo.sort_values(by="Probabilità", ascending=False)
         df_combo["Quota Minima"] = 1 / df_combo["Probabilità"]
         
-        # Aggiungiamo una descrizione testuale
         df_combo["Significato"] = df_combo["Combo (1°T / Finale)"].apply(
             lambda x: f"1°T: {nomi_esiti[x.split('/')[0]]} -> Finale: {nomi_esiti[x.split('/')[1]]}"
         )
         
-        # Mostriamo la tabella
         styled_combo = df_combo[["Combo (1°T / Finale)", "Significato", "Probabilità", "Quota Minima"]].style.format({
             'Probabilità': '{:.1%}',
             'Quota Minima': '{:.2f}'
@@ -167,6 +160,44 @@ if st.button("Calcola Pronostico", type="primary"):
         
         st.dataframe(styled_combo, use_container_width=True, hide_index=True)
         
-        # Consiglio sulla combo più probabile
-        top_combo = df_combo.iloc[0]
-        st.info(f"🎯 **La combo più probabile per questa partita è {top_combo['Combo (1°T / Finale)']}** (con una probabilità del {top_combo['Probabilità']:.1%}). Se il bookmaker ti offre più di {top_combo['Quota Minima']:.2f}, è un'ottima giocata.")
+        st.divider()
+
+        # --- SEZIONE 5: ANGOLI (CORNERS) ---
+        st.subheader("🚩 Mercato Angoli (Corners)")
+        
+        # Calcoliamo la media storica di angoli fatti in casa e subiti in trasferta
+        avg_home_corners = data[data['HomeTeam'] == casa]['HC'].mean()
+        avg_away_corners = data[data['AwayTeam'] == trasferta]['AC'].mean()
+        lambda_corners = avg_home_corners + avg_away_corners
+        
+        st.write(f"**Stima Angoli Totali:** {lambda_corners:.1f} (Media {casa} in casa: {avg_home_corners:.1f} | Media {trasferta} in trasferta: {avg_away_corners:.1f})")
+        
+        # Calcoliamo le probabilità Over per le linee più comuni
+        linee_corners = [8.5, 9.5, 10.5, 11.5]
+        cols_corners = st.columns(len(linee_corners))
+        
+        for i, linea in enumerate(linee_corners):
+            # Probabilità che il numero di angoli sia MAGGIORE della linea
+            p_over = 1 - poisson.cdf(np.floor(linea), lambda_corners)
+            with cols_corners[i]:
+                st.metric(f"Over {linea}", f"{p_over:.1%}", help=f"Quota minima: {1/p_over:.2f}")
+
+        st.divider()
+
+        # --- SEZIONE 6: CARTELLINI (CARDS) ---
+        st.subheader("🟨 Mercato Cartellini (Ammonizioni)")
+        
+        # Calcoliamo la media storica dei cartellini gialli
+        avg_home_cards = data[data['HomeTeam'] == casa]['HY'].mean()
+        avg_away_cards = data[data['AwayTeam'] == trasferta]['AY'].mean()
+        lambda_cards = avg_home_cards + avg_away_cards
+        
+        st.write(f"**Stima Cartellini Totali:** {lambda_cards:.1f} (Media {casa} in casa: {avg_home_cards:.1f} | Media {trasferta} in trasferta: {avg_away_cards:.1f})")
+        
+        linee_cards = [2.5, 3.5, 4.5, 5.5]
+        cols_cards = st.columns(len(linee_cards))
+        
+        for i, linea in enumerate(linee_cards):
+            p_over = 1 - poisson.cdf(np.floor(linea), lambda_cards)
+            with cols_cards[i]:
+                st.metric(f"Over {linea}", f"{p_over:.1%}", help=f"Quota minima: {1/p_over:.2f}")
