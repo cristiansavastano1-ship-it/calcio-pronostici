@@ -4,6 +4,7 @@ import penaltyblog as pb
 import numpy as np
 from scipy.stats import poisson
 import requests
+from datetime import datetime, timedelta
 
 # Impostazioni della pagina web
 st.set_page_config(page_title="Calcio Betting Model", page_icon="⚽", layout="wide")
@@ -14,27 +15,12 @@ api_key = st.sidebar.text_input("API Key (API-Football)", type="password", help=
 st.sidebar.info("Se non hai la chiave, l'app funzionerà lo stesso ma i mercati giocatori non saranno disponibili.")
 
 # --- DIZIONARIO ID SQUADRE PREMIER LEAGUE ---
-# Evita problemi di ricerca per nome e rende le chiamate più veloci.
 TEAM_IDS = {
-    "Arsenal": 42,
-    "Aston Villa": 66,
-    "Bournemouth": 35,
-    "Brentford": 55,
-    "Brighton": 51,
-    "Chelsea": 49,
-    "Crystal Palace": 52,
-    "Everton": 45,
-    "Fulham": 36,
-    "Liverpool": 40,
-    "Luton": 1359,
-    "Man City": 50,
-    "Man United": 33,
-    "Newcastle": 34,
-    "Nott'm Forest": 65,
-    "Sheffield United": 62,
-    "Tottenham": 47,
-    "West Ham": 48,
-    "Wolves": 39,
+    "Arsenal": 42, "Aston Villa": 66, "Bournemouth": 35, "Brentford": 55,
+    "Brighton": 51, "Chelsea": 49, "Crystal Palace": 52, "Everton": 45,
+    "Fulham": 36, "Liverpool": 40, "Luton": 1359, "Man City": 50,
+    "Man United": 33, "Newcastle": 34, "Nott'm Forest": 65,
+    "Sheffield United": 62, "Tottenham": 47, "West Ham": 48, "Wolves": 39,
     "Burnley": 44,
 }
 
@@ -79,20 +65,29 @@ def get_player_stats(api_key, team_home, team_away):
             return None, f"ID non trovato per {team_away}. Risposta API: {r.get('errors')}"
         away_id = r['response'][0]['team']['id']
     
-    # 2. Troviamo l'ultima partita tra le due squadre
-    r_fixture = requests.get(f"https://v3.football.api-sports.io/fixtures/headtohead?h2h={home_id}-{away_id}&last=1", headers=headers).json()
+    # 2. Troviamo l'ultima partita tra le due squadre usando un intervallo di date
+    # Calcoliamo le date: da 6 mesi fa a oggi
+    oggi = datetime.now().strftime('%Y-%m-%d')
+    sei_mesi_fa = (datetime.now() - timedelta(days=180)).strftime('%Y-%m-%d')
+    
+    # Chiamata headtohead con from e to (parametri accettati dal piano gratuito)
+    url_h2h = f"https://v3.football.api-sports.io/fixtures/headtohead?h2h={home_id}-{away_id}&from={sei_mesi_fa}&to={oggi}"
+    r_fixture = requests.get(url_h2h, headers=headers).json()
     
     if not r_fixture.get('response'):
-        return None, f"Nessuna partita recente trovata. Risposta API: {r_fixture.get('errors')}"
+        return None, f"Nessuna partita trovata tra {team_home} e {team_away} negli ultimi 6 mesi. Risposta API: {r_fixture.get('errors')}"
     
-    fixture_id = r_fixture['response'][0]['fixture']['id']
-    fixture_date = r_fixture['response'][0]['fixture']['date']
+    # Ordiniamo i risultati per data (dal più recente) e prendiamo il primo
+    partite = r_fixture['response']
+    partite.sort(key=lambda x: x['fixture']['date'], reverse=True)
+    fixture_id = partite[0]['fixture']['id']
+    fixture_date = partite[0]['fixture']['date']
     
     # 3. Otteniamo le statistiche dei giocatori per quella partita
     r_stats = requests.get(f"https://v3.football.api-sports.io/fixtures/players?fixture={fixture_id}", headers=headers).json()
     
     if not r_stats.get('response'):
-        return None, f"Statistiche non disponibili. Risposta API: {r_stats.get('errors')}"
+        return None, f"Statistiche non disponibili per la partita del {fixture_date[:10]}. Risposta API: {r_stats.get('errors')}"
     
     # 4. Estraiamo i dati
     players_data = []
@@ -162,8 +157,9 @@ if st.session_state.pred is not None:
     
     st.header(f"{casa_match} vs {trasferta_match}")
     
-    # ... (tutte le sezioni 1-6 come nel codice precedente, che non riporto per brevità) ...
-    # Per non perdere spazio, incolla qui le sezioni 1-6 identiche a prima.
+    # ... (Sezioni 1-6: Mercati Base, Risultati Esatti, HT/FT, Angoli, Cartellini) ...
+    # Incolla qui le sezioni 1-6 identiche al codice precedente per non perdere spazio.
+    # (Puoi copiarle dal messaggio precedente, sono invariate)
     
     st.divider()
 
