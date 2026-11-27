@@ -7,7 +7,6 @@ from scipy.stats import poisson
 from datetime import datetime
 
 # --- FORZIAMO SELENIUMBASE A USARE UNA CARTELLA SCRIVIBILE ---
-# Questo risolve l'errore "Permission denied" su Streamlit Cloud
 from seleniumbase.core import browser_launcher
 DRIVER_DIR = "/tmp/seleniumbase_drivers"
 os.makedirs(DRIVER_DIR, exist_ok=True)
@@ -19,7 +18,7 @@ import soccerdata as sd
 # --- CALCOLO DINAMICO DELLA STAGIONE (Siamo nel 2026) ---
 anno_corrente = datetime.now().year
 anno_inizio_stagione = anno_corrente if datetime.now().month >= 7 else anno_corrente - 1
-stagione_fbref = f"{anno_inizio_stagione}-{anno_inizio_stagione+1}"
+stagione_understat = str(anno_inizio_stagione) # Understat usa solo l'anno di inizio
 codice_football_data = f"{str(anno_inizio_stagione)[-2:]}{str(anno_inizio_stagione+1)[-2:]}"
 
 st.set_page_config(page_title="Calcio Betting Model 2026", page_icon="⚽", layout="wide")
@@ -32,14 +31,14 @@ campionato = st.sidebar.selectbox(
 )
 
 mappa_campionati = {
-    "Premier League": {"fd": "E0", "fbref": "ENG-Premier League"},
-    "Serie A": {"fd": "I1", "fbref": "ITA-Serie A"},
-    "La Liga": {"fd": "SP1", "fbref": "ESP-La Liga"},
-    "Bundesliga": {"fd": "D1", "fbref": "GER-Bundesliga"},
-    "Ligue 1": {"fd": "F1", "fbref": "FRA-Ligue 1"}
+    "Premier League": {"fd": "E0", "understat": "EPL"},
+    "Serie A": {"fd": "I1", "understat": "Serie A"},
+    "La Liga": {"fd": "SP1", "understat": "La Liga"},
+    "Bundesliga": {"fd": "D1", "understat": "Bundesliga"},
+    "Ligue 1": {"fd": "F1", "understat": "Ligue 1"}
 }
 codice_lega_fd = mappa_campionati[campionato]["fd"]
-nome_lega_fbref = mappa_campionati[campionato]["fbref"]
+nome_lega_understat = mappa_campionati[campionato]["understat"]
 
 # --- DATI MODELLO (Gol, Angoli, Cartellini) ---
 @st.cache_data
@@ -64,42 +63,43 @@ def allena_modello(data):
     model.fit()
     return model
 
-# --- DATI GIOCATORI (FBref tramite soccerdata) ---
+# --- DATI GIOCATORI (Understat tramite soccerdata) ---
 @st.cache_data(show_spinner=False)
-def carica_stats_giocatori(lega_fbref, stagione):
+def carica_stats_giocatori(lega_understat, stagione):
     try:
-        # Il percorso del browser rimane quello installato da packages.txt
-        fbref = sd.FBref(
-            leagues=lega_fbref, 
-            seasons=stagione, 
-            path_to_browser='/usr/bin/chromium'
-        )
+        understat = sd.Understat(leagues=lega_understat, seasons=stagione)
         
-        df_standard = fbref.read_player_season_stats(stat_type="standard")
-        df_shooting = fbref.read_player_season_stats(stat_type="shooting")
+        # Understat fornisce le statistiche dei giocatori in un unico dataframe
+        df_players = understat.read_player_season_stats()
         
-        df_merged = pd.merge(
-            df_standard[['player', 'team', 'Gls', 'Min', 'CrdY']],
-            df_shooting[['player', 'team', 'Sh', 'SoT']],
-            on=['player', 'team'], how='left'
-        ).rename(columns={
-            'player': 'Giocatore', 'team': 'Squadra', 'Gls': 'Gol',
-            'Min': 'Minuti', 'CrdY': 'Cartellini', 'Sh': 'Tiri Totali', 'SoT': 'Tiri in Porta'
+        # Rinominiamo le colonne per chiarezza
+        # Understat usa nomi come 'player', 'team', 'goals', 'shots', 'xG', ecc.
+        df_players = df_players.rename(columns={
+            'player': 'Giocatore',
+            'team': 'Squadra',
+            'goals': 'Gol',
+            'shots': 'Tiri Totali',
+            'xG': 'xG',
+            'minutes': 'Minuti',
+            'yellow_cards': 'Cartellini'
         }).fillna(0)
         
-        df_merged['Minuti'] = df_merged['Minuti'].replace(0, np.nan)
-        df_merged['Tiri/90'] = (df_merged['Tiri Totali'] / df_merged['Minuti'] * 90).fillna(0)
-        df_merged['Tiri in Porta/90'] = (df_merged['Tiri in Porta'] / df_merged['Minuti'] * 90).fillna(0)
-        df_merged['Gol/90'] = (df_merged['Gol'] / df_merged['Minuti'] * 90).fillna(0)
-        df_merged['Cartellini/90'] = (df_merged['Cartellini'] / df_merged['Minuti'] * 90).fillna(0)
+        # Calcoliamo le medie per 90 minuti
+        df_players['Minuti'] = df_players['Minuti'].replace(0, np.nan)
+        df_players['Tiri/90'] = (df_players['Tiri Totali'] / df_players['Minuti'] * 90).fillna(0)
+        df_players['Gol/90'] = (df_players['Gol'] / df_players['Minuti'] * 90).fillna(0)
+        df_players['Cartellini/90'] = (df_players['Cartellini'] / df_players['Minuti'] * 90).fillna(0)
+        # Understat non fornisce direttamente i tiri in porta, ma possiamo usare xG come proxy o ometterli
+        # Per semplicità, mostriamo Tiri/90 e xG/90
         
-        return df_merged[['Giocatore', 'Squadra', 'Minuti', 'Gol', 'Tiri Totali', 'Tiri in Porta', 'Cartellini', 'Tiri/90', 'Tiri in Porta/90', 'Gol/90', 'Cartellini/90']]
+        return df_players[['Giocatore', 'Squadra', 'Minuti', 'Gol', 'Tiri Totali', 'xG', 'Cartellini', 'Tiri/90', 'Gol/90', 'Cartellini/90']]
     except Exception as e:
         return f"ERRORE: {e}"
 
 def filtra_giocatori(df, squadra_casa, squadra_trasferta):
     if isinstance(df, str): return df
     
+    # La mappatura per Understat potrebbe essere diversa, ma spesso i nomi coincidono
     mappatura = {
         "Man United": "Manchester United", "Man City": "Manchester City",
         "Nott'm Forest": "Nottingham Forest", "Sheffield United": "Sheffield United",
@@ -113,7 +113,7 @@ def filtra_giocatori(df, squadra_casa, squadra_trasferta):
     
     df_filtrato = df[df['Squadra'].isin([sq_casa, sq_trasferta])].copy()
     if df_filtrato.empty:
-        return "Nessun giocatore trovato per queste squadre nel database di FBref."
+        return "Nessun giocatore trovato per queste squadre nel database di Understat."
     return df_filtrato.sort_values(by='Tiri/90', ascending=False)
 
 # --- INTERFACCIA PRINCIPALE ---
@@ -221,11 +221,11 @@ if st.session_state.pred is not None:
         st.metric("Over 4.5", f"{p_over_45:.1%}", help=f"Quota: {1/p_over_45:.2f}")
     st.divider()
     
-    # Sezione 5: Mercati Giocatori
-    st.subheader(f"👤 Mercati Giocatori (Dati Stagione {stagione_fbref})")
+    # Sezione 5: Mercati Giocatori (Understat)
+    st.subheader(f"👤 Mercati Giocatori (Dati Stagione {stagione_understat} da Understat)")
     if st.button("Carica Statistiche Giocatori"):
-        with st.spinner(f"Download dati {campionato} {stagione_fbref} da FBref... (può richiedere 1-2 minuti la prima volta)"):
-            df_stats = carica_stats_giocatori(nome_lega_fbref, stagione_fbref)
+        with st.spinner(f"Download dati {campionato} {stagione_understat} da Understat..."):
+            df_stats = carica_stats_giocatori(nome_lega_understat, stagione_understat)
             df_filtrato = filtra_giocatori(df_stats, casa_match, trasferta_match)
             
             if isinstance(df_filtrato, str):
@@ -233,6 +233,6 @@ if st.session_state.pred is not None:
             else:
                 st.success("✅ Dati caricati con successo!")
                 st.dataframe(df_filtrato, use_container_width=True, hide_index=True)
-                st.markdown("#### 🎯 Top 3 per Tiri in Porta / 90 min")
-                top3 = df_filtrato.nlargest(3, 'Tiri in Porta/90')[['Giocatore', 'Squadra', 'Tiri in Porta/90', 'Gol/90']]
+                st.markdown("#### 🎯 Top 3 per Tiri / 90 min")
+                top3 = df_filtrato.nlargest(3, 'Tiri/90')[['Giocatore', 'Squadra', 'Tiri/90', 'Gol/90', 'xG']]
                 st.dataframe(top3, use_container_width=True, hide_index=True)
