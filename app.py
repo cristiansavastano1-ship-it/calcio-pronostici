@@ -15,10 +15,10 @@ browser_launcher.override_driver_dir(DRIVER_DIR)
 # Ora possiamo importare soccerdata in sicurezza
 import soccerdata as sd
 
-# --- CALCOLO DINAMICO DELLA STAGIONE (Siamo nel 2026) ---
+# --- CALCOLO DINAMICO DELLA STAGIONE ---
 anno_corrente = datetime.now().year
 anno_inizio_stagione = anno_corrente if datetime.now().month >= 7 else anno_corrente - 1
-stagione_understat = str(anno_inizio_stagione) # Understat usa solo l'anno di inizio
+stagione_understat = str(anno_inizio_stagione)
 codice_football_data = f"{str(anno_inizio_stagione)[-2:]}{str(anno_inizio_stagione+1)[-2:]}"
 
 st.set_page_config(page_title="Calcio Betting Model 2026", page_icon="⚽", layout="wide")
@@ -30,12 +30,13 @@ campionato = st.sidebar.selectbox(
     ["Premier League", "Serie A", "La Liga", "Bundesliga", "Ligue 1"]
 )
 
+# QUI LA CORREZIONE: I nomi per Understat devono essere quelli lunghi
 mappa_campionati = {
-    "Premier League": {"fd": "E0", "understat": "EPL"},
-    "Serie A": {"fd": "I1", "understat": "Serie A"},
-    "La Liga": {"fd": "SP1", "understat": "La Liga"},
-    "Bundesliga": {"fd": "D1", "understat": "Bundesliga"},
-    "Ligue 1": {"fd": "F1", "understat": "Ligue 1"}
+    "Premier League": {"fd": "E0", "understat": "ENG-Premier League"},
+    "Serie A": {"fd": "I1", "understat": "ITA-Serie A"},
+    "La Liga": {"fd": "SP1", "understat": "ESP-La Liga"},
+    "Bundesliga": {"fd": "D1", "understat": "GER-Bundesliga"},
+    "Ligue 1": {"fd": "F1", "understat": "FRA-Ligue 1"}
 }
 codice_lega_fd = mappa_campionati[campionato]["fd"]
 nome_lega_understat = mappa_campionati[campionato]["understat"]
@@ -69,17 +70,15 @@ def carica_stats_giocatori(lega_understat, stagione):
     try:
         understat = sd.Understat(leagues=lega_understat, seasons=stagione)
         
-        # Understat fornisce le statistiche dei giocatori in un unico dataframe
         df_players = understat.read_player_season_stats()
         
-        # Rinominiamo le colonne per chiarezza
-        # Understat usa nomi come 'player', 'team', 'goals', 'shots', 'xG', ecc.
+        # Understat usa nomi specifici delle colonne. Le adattiamo.
         df_players = df_players.rename(columns={
             'player': 'Giocatore',
             'team': 'Squadra',
             'goals': 'Gol',
             'shots': 'Tiri Totali',
-            'xG': 'xG',
+            'xg': 'xG',
             'minutes': 'Minuti',
             'yellow_cards': 'Cartellini'
         }).fillna(0)
@@ -89,8 +88,6 @@ def carica_stats_giocatori(lega_understat, stagione):
         df_players['Tiri/90'] = (df_players['Tiri Totali'] / df_players['Minuti'] * 90).fillna(0)
         df_players['Gol/90'] = (df_players['Gol'] / df_players['Minuti'] * 90).fillna(0)
         df_players['Cartellini/90'] = (df_players['Cartellini'] / df_players['Minuti'] * 90).fillna(0)
-        # Understat non fornisce direttamente i tiri in porta, ma possiamo usare xG come proxy o ometterli
-        # Per semplicità, mostriamo Tiri/90 e xG/90
         
         return df_players[['Giocatore', 'Squadra', 'Minuti', 'Gol', 'Tiri Totali', 'xG', 'Cartellini', 'Tiri/90', 'Gol/90', 'Cartellini/90']]
     except Exception as e:
@@ -99,7 +96,7 @@ def carica_stats_giocatori(lega_understat, stagione):
 def filtra_giocatori(df, squadra_casa, squadra_trasferta):
     if isinstance(df, str): return df
     
-    # La mappatura per Understat potrebbe essere diversa, ma spesso i nomi coincidono
+    # Understat usa nomi abbastanza standard, ma aggiungiamo le mappature comuni
     mappatura = {
         "Man United": "Manchester United", "Man City": "Manchester City",
         "Nott'm Forest": "Nottingham Forest", "Sheffield United": "Sheffield United",
