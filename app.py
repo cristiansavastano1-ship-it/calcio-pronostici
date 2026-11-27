@@ -1,15 +1,17 @@
+import os
 import streamlit as st
 import pandas as pd
 import penaltyblog as pb
 import numpy as np
 from scipy.stats import poisson
 from datetime import datetime
-import os
 
-# --- FORZIAMO UNA CARTELLA SCRIVIBILE PER I DRIVER DI SELENIUM ---
+# --- FORZIAMO SELENIUMBASE A USARE UNA CARTELLA SCRIVIBILE ---
 # Questo risolve l'errore "Permission denied" su Streamlit Cloud
-os.environ["SB_DRIVER_DIR"] = "/tmp/seleniumbase_drivers"
-os.makedirs("/tmp/seleniumbase_drivers", exist_ok=True)
+from seleniumbase.core import browser_launcher
+DRIVER_DIR = "/tmp/seleniumbase_drivers"
+os.makedirs(DRIVER_DIR, exist_ok=True)
+browser_launcher.override_driver_dir(DRIVER_DIR)
 
 # Ora possiamo importare soccerdata in sicurezza
 import soccerdata as sd
@@ -66,7 +68,7 @@ def allena_modello(data):
 @st.cache_data(show_spinner=False)
 def carica_stats_giocatori(lega_fbref, stagione):
     try:
-        # Passiamo il percorso di Chromium e sfruttiamo la cartella /tmp per i driver
+        # Il percorso del browser rimane quello installato da packages.txt
         fbref = sd.FBref(
             leagues=lega_fbref, 
             seasons=stagione, 
