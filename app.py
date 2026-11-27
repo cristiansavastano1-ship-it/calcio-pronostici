@@ -3,8 +3,16 @@ import pandas as pd
 import penaltyblog as pb
 import numpy as np
 from scipy.stats import poisson
-import soccerdata as sd
 from datetime import datetime
+import os
+
+# --- FORZIAMO UNA CARTELLA SCRIVIBILE PER I DRIVER DI SELENIUM ---
+# Questo risolve l'errore "Permission denied" su Streamlit Cloud
+os.environ["SB_DRIVER_DIR"] = "/tmp/seleniumbase_drivers"
+os.makedirs("/tmp/seleniumbase_drivers", exist_ok=True)
+
+# Ora possiamo importare soccerdata in sicurezza
+import soccerdata as sd
 
 # --- CALCOLO DINAMICO DELLA STAGIONE (Siamo nel 2026) ---
 anno_corrente = datetime.now().year
@@ -58,8 +66,12 @@ def allena_modello(data):
 @st.cache_data(show_spinner=False)
 def carica_stats_giocatori(lega_fbref, stagione):
     try:
-        # Percorso di Chromium installato tramite packages.txt su Streamlit Cloud
-        fbref = sd.FBref(leagues=lega_fbref, seasons=stagione, path_to_browser='/usr/bin/chromium')
+        # Passiamo il percorso di Chromium e sfruttiamo la cartella /tmp per i driver
+        fbref = sd.FBref(
+            leagues=lega_fbref, 
+            seasons=stagione, 
+            path_to_browser='/usr/bin/chromium'
+        )
         
         df_standard = fbref.read_player_season_stats(stat_type="standard")
         df_shooting = fbref.read_player_season_stats(stat_type="shooting")
@@ -84,7 +96,7 @@ def carica_stats_giocatori(lega_fbref, stagione):
         return f"ERRORE: {e}"
 
 def filtra_giocatori(df, squadra_casa, squadra_trasferta):
-    if isinstance(df, str): return df # Restituisce l'errore
+    if isinstance(df, str): return df
     
     mappatura = {
         "Man United": "Manchester United", "Man City": "Manchester City",
